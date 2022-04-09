@@ -1,0 +1,116 @@
+import sys
+from struct import unpack
+
+if len(sys.argv) != 2:
+    print("Использовать: " + sys.argv[0] + " <имя образа>")
+    exit(0)
+
+# Открываем файл образа
+with open(sys.argv[1], 'rb') as fd:
+
+    data = fd.read(512)
+    if not data:
+        print("Ошибка чтения файла")
+        exit(-1)
+        
+    # Выделяем основные элементы
+    sector_size, clust_size , MFT, MFTmirr, mft_size = unpack("=11xHB34xQQb", data[:65])
+    mft_size = 2 ** abs(mft_size)
+    MFT_addr = MFT * sector_size * clust_size
+    MFTmirr_addr = MFTmirr * sector_size * clust_size
+    
+    print(f"""Размер сектора: {sector_size} 
+Размер сектора: {clust_size}
+Адресс MFT: {hex(MFT_addr)} 
+Адресс MFTmirr: {hex(MFTmirr_addr)} 
+Размер MFT: {mft_size}""")
+    print("\n")
+    print("-------------------------------------------------------------------------")
+    print("-------------------------------------------------------------------------")
+    print("-------------------------------------------------------------------------")
+    print("-------------------------------------------------------------------------")
+    print("\n")
+
+    fd.seek(MFT_addr)
+
+    while True:
+        data = fd.read(mft_size)
+        type, marker_offset, marker_number, transaction, ord_number, link_counter, first_attr_offset, flag, mft_size_used,  mft_size_allocated, mft_address, new_attribute_id, file_entry_number = unpack("=IHHQHHHHIIQH2xI", data[: 48])
+
+        if type == 0x454c4946:
+            type = "FILE"
+        elif type == 0x58444e49:
+            type = "INDX"
+        elif type == 0x454c4f48:
+            type = "HOLE"
+        elif type == 0x444b4843:
+            type = "CHKD"
+        elif type == 0x44414142:
+            type = "BAAD"
+        else: 
+            exit(0)
+
+        print(f"""Тип записи: {type}
+Смещение массива маркеров: {hex(marker_offset)}
+Количество элементов массива маркеров: {marker_number} 
+Номер для журнала транзакций транзакций: {hex(transaction)}
+Порядковый номер: {ord_number}
+Счетчик ссылок: {link_counter}
+Смещение первого атрибута: {hex(first_attr_offset)}
+Флаг: {hex(flag)}
+Используемый размер записи MFT: {mft_size_used}
+Выделенный размер записи MFT: {mft_size_allocated}
+Адрес базовой записи MFT: {hex(mft_address)}
+Идентификатор для нового атрибута: {hex(new_attribute_id)}
+Номер файловой записи: {file_entry_number}""")
+
+        offset = first_attr_offset
+
+        while True:
+            type, attr_len, resident_flag, name_len, name_offset, flags, attr_id = unpack(f"={offset}xIIBBHHH", data[:offset + 16])
+            if (type ==  0xffffffff):
+                break
+            if (resident_flag == 0):
+                data_len, data_offset, attr_flags = unpack(f"={offset + 16}xIHB", data[:offset + 23])
+                print("\n")
+                print("-------------------------------------------------------------------------")
+                print("\n")
+                print(f"""    Резидентный атрибут
+    Идентификатор типа атрибута: {type}
+    Длина атрибута: {attr_len}
+    Длина имени: {name_len}
+    Смещение имени: {hex(name_offset)}
+    Флаги: {hex(flags)}
+    Идентификатор атрибута: {hex(attr_id)}
+    Длина содержимого: {data_len}
+    Смещение содержимого: {hex(data_offset)}
+    Флаги резидентного атрибута: {hex(attr_flags)}""")
+
+            else: 
+                first_virtual_cluster, last_virtual_cluster, block_offset, compressed_block_size, used, allocated_data, used_data, initial_attribute_size, size_atr_after_compres  = unpack(f"={offset + 16}xQQHHIQQQQ", data[:offset + 72])
+                print("\n")
+                print("-------------------------------------------------------------------------")
+                print("\n")
+                print(f"""    Нерезидентный атрибут
+    Идентификатор типа атрибута: {type}
+    Длина атрибута: {attr_len}
+    Длина имени: {name_len}
+    Смещение имени: {hex(name_offset)}
+    Флаги: {hex(flags)}
+    Идентификатор атрибута: {hex(attr_id)}
+    Номер начального виртуального кластера: {first_virtual_cluster}
+    Конечный номер виртуального кластера: {last_virtual_cluster}
+    Cмещение списка серий: {hex(block_offset)}
+    Размер блока сжатия: {compressed_block_size}
+    Не используется: {used}
+    Выделенный размер содержимого атрибута: {allocated_data}
+    Фактический размер атрибута: {used_data}
+    Инициализированный размер атрибута: {initial_attribute_size}
+    Размер атрибута после сжатия: {size_atr_after_compres}""")
+
+            offset = offset + attr_len
+        
+        print("\n")
+        print("-------------------------------------------------------------------------")
+        print("-------------------------------------------------------------------------")
+        print("\n")
